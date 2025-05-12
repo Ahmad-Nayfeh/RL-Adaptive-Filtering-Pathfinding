@@ -1,7 +1,7 @@
-# grid_environment.py (v3 - uses new obstacle configs)
+# grid_environment.py (v4 - with reward shaping)
 
 import numpy as np
-import collections # For deque in BFS
+import collections
 import config
 
 class GridEnvironment:
@@ -9,10 +9,9 @@ class GridEnvironment:
         self.grid_rows = config.GRID_ROWS
         self.grid_cols = config.GRID_COLS
         
-        # Dynamically select obstacles and start/goal based on grid size
         if self.grid_rows == 16 and self.grid_cols == 16:
-            self.start_pos = config.START_POS # Uses global START_POS
-            self.goal_pos = config.GOAL_POS   # Uses global GOAL_POS
+            self.start_pos = config.START_POS
+            self.goal_pos = config.GOAL_POS
             current_obstacle_list = config.OBSTACLES_16x16
             if config.VERBOSE_LOGGING: print("Using 16x16 obstacle set.")
         elif self.grid_rows == 8 and self.grid_cols == 8:
@@ -20,27 +19,22 @@ class GridEnvironment:
             self.goal_pos = config.GOAL_POS_8x8
             current_obstacle_list = config.OBSTACLES_8x8
             if config.VERBOSE_LOGGING: print("Using 8x8 obstacle set.")
-        else: # Fallback for other sizes - use empty obstacle list or a generic one
+        else:
             self.start_pos = (0,0)
             self.goal_pos = (self.grid_rows - 1, self.grid_cols - 1)
             current_obstacle_list = []
             if config.VERBOSE_LOGGING: print(f"Warning: No specific obstacle set for {self.grid_rows}x{self.grid_cols}. Using empty.")
 
-        # Ensure obstacles are valid for the current grid dimensions and don't include start/goal
         self.obstacles = set()
         for r_obs, c_obs in current_obstacle_list:
             if 0 <= r_obs < self.grid_rows and 0 <= c_obs < self.grid_cols:
                 if (r_obs, c_obs) != self.start_pos and (r_obs, c_obs) != self.goal_pos:
                     self.obstacles.add((r_obs, c_obs))
         
-        # Update config's global START_POS and GOAL_POS to reflect what this instance is using
-        # This helps if other modules (like plotting) refer to config.START_POS directly for this env.
-        # However, it's better if plotting gets S/G from the saved results' config_snapshot.
-        # For now, this ensures the env instance's S/G are definitive for its operations.
-        config.START_POS_DYNAMIC = self.start_pos # Store the dynamically chosen start/goal
+        # For other modules that might refer to config for dynamic values
+        config.START_POS_DYNAMIC = self.start_pos 
         config.GOAL_POS_DYNAMIC = self.goal_pos
         config.OBSTACLES_DYNAMIC = list(self.obstacles)
-
 
         self.agent_pos = None
         self.action_space = config.ACTIONS
@@ -49,6 +43,7 @@ class GridEnvironment:
         if config.VERBOSE_LOGGING:
             print(f"Grid Environment initialized: {self.grid_rows}x{self.grid_cols}")
             print(f"Effective Start: {self.start_pos}, Effective Goal: {self.goal_pos}")
+            print(f"Reward Shaping Factor: {config.REWARD_SHAPING_FACTOR}")
 
     def reset(self):
         self.agent_pos = self.start_pos
@@ -81,71 +76,89 @@ class GridEnvironment:
 
         if not self._is_valid_position(next_pos):
             reward = config.REWARD_INVALID_MOVE
-            next_state = self.agent_pos
+            # Agent position does not change for invalid move
+            next_state = self.agent_pos 
         elif self._is_obstacle(next_pos):
             reward = config.REWARD_OBSTACLE
+            # Agent position does not change if it hits an obstacle
             next_state = self.agent_pos
         elif next_pos == self.goal_pos:
             reward = config.REWARD_GOAL
             self.agent_pos = next_pos
             next_state = self.agent_pos
             done = True
-        else:
-            reward = config.REWARD_STEP
+        else: # Regular valid step
+            # Standard step penalty
+            step_reward = config.REWARD_STEP
+            
+            # Reward Shaping: Penalty based on Manhattan distance to goal
+            if config.REWARD_SHAPING_FACTOR != 0:
+                manhattan_distance = abs(next_pos[0] - self.goal_pos[0]) + abs(next_pos[1] - self.goal_pos[1])
+                shaping_penalty = config.REWARD_SHAPING_FACTOR * manhattan_distance
+                reward = step_reward - shaping_penalty # Subtract penalty (factor is positive)
+            else:
+                reward = step_reward
+
             self.agent_pos = next_pos
             next_state = self.agent_pos
+            
         return next_state, reward, done, info
 
-    def render(self, mode='human', path_to_draw=None, path_color='blue'): # Unchanged from v2
+    def render(self, mode='human', path_to_draw=None):
         if mode == 'human':
             grid_repr = np.full((self.grid_rows, self.grid_cols), '.', dtype=str)
             if self.start_pos: grid_repr[self.start_pos] = 'S'
             if self.goal_pos: grid_repr[self.goal_pos] = 'G'
             for obs_pos in self.obstacles: grid_repr[obs_pos] = 'X'
             if path_to_draw:
-                for r,c in path_to_draw:
-                    if (r,c) != self.start_pos and (r,c) != self.goal_pos: grid_repr[r,c] = '*'
-            if self.agent_pos: grid_repr[self.agent_pos] = 'A'
+                for r_idx,c_idx in path_to_draw:
+                    if (r_idx,c_idx) != self.start_pos and (r_idx,c_idx) != self.goal_pos and (r_idx,c_idx) not in self.obstacles :
+                        grid_repr[r_idx,c_idx] = '*' # Path marker
+            if self.agent_pos and grid_repr[self.agent_pos] == '.': # Don't overwrite S, G, X
+                grid_repr[self.agent_pos] = 'A'
+            
             for r_idx in range(self.grid_rows): print(" ".join(grid_repr[r_idx]))
             print("-" * (self.grid_cols * 2 -1))
 
-    def get_optimal_path_bfs(self): # Unchanged from v2
+    def get_optimal_path_bfs(self):
         if not self.start_pos or not self.goal_pos: return None
         queue = collections.deque([([self.start_pos], self.start_pos)])
         visited = {self.start_pos}
         while queue:
             current_path, (r, c) = queue.popleft()
             if (r, c) == self.goal_pos: return current_path
-            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                nr, nc = r + dr, c + dc; next_node = (nr, nc)
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]: # Up, Down, Left, Right
+                nr, nc = r + dr, c + dc
+                next_node = (nr, nc)
                 if self._is_valid_position(next_node) and not self._is_obstacle(next_node) and next_node not in visited:
-                    visited.add(next_node); new_path = current_path + [next_node]; queue.append((new_path, next_node))
+                    visited.add(next_node)
+                    new_path = list(current_path) # Create a new list for the new path
+                    new_path.append(next_node)
+                    queue.append((new_path, next_node))
         return None
 
 if __name__ == "__main__":
-    # Test with 16x16 default from config
-    print("--- Testing 16x16 Environment (Harder Obstacles) ---")
-    config.GRID_ROWS = 16 # Ensure config matches test
-    config.GRID_COLS = 16
-    env16 = GridEnvironment()
-    env16.reset()
-    env16.render()
-    optimal_path16 = env16.get_optimal_path_bfs()
-    if optimal_path16:
-        print(f"16x16 Optimal path length: {len(optimal_path16) -1 } steps")
-        # env16.render(path_to_draw=optimal_path16) # Can be very long
-    else:
-        print("16x16 No optimal path found (check obstacles vs start/goal).")
-
-    print("\n--- Testing 8x8 Environment (Harder Obstacles) ---")
-    config.GRID_ROWS = 8 # Temporarily change config for testing 8x8
+    print("--- Testing Grid Environment with Reward Shaping ---")
+    # Test with 8x8
+    config.GRID_ROWS = 8
     config.GRID_COLS = 8
+    config.REWARD_SHAPING_FACTOR = 0.1 # Enable shaping for test
     env8 = GridEnvironment()
-    env8.reset()
+    state = env8.reset()
+    print(f"Initial state: {state}")
     env8.render()
-    optimal_path8 = env8.get_optimal_path_bfs()
-    if optimal_path8:
-        print(f"8x8 Optimal path length: {len(optimal_path8) -1 } steps")
-        # env8.render(path_to_draw=optimal_path8)
+
+    # Test a few steps
+    actions_to_test = [config.ACTION_RIGHT, config.ACTION_RIGHT, config.ACTION_DOWN]
+    for action_idx, action in enumerate(actions_to_test):
+        next_s, reward, done, _ = env8.step(action)
+        print(f"Step {action_idx+1}: Action={action}, NextState={next_s}, Reward={reward:.2f}, Done={done}")
+        env8.render()
+        if done: break
+    
+    optimal_path = env8.get_optimal_path_bfs()
+    if optimal_path:
+        print(f"Optimal path for 8x8: {optimal_path}")
+        print(f"Optimal path length: {len(optimal_path)-1}")
     else:
-        print("8x8 No optimal path found (check obstacles vs start/goal).")
+        print("No optimal path found for 8x8.")

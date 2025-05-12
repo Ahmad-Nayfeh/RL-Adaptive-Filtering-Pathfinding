@@ -1,8 +1,0 @@
-Algorithm,Feature_Strategy,Grid_Size,Num_Episodes_Configured,Max_Steps_Per_Episode_Configured,Total_Training_Steps_Executed,Training_Duration_Seconds,Avg_Reward_Overall,Avg_Steps_Overall,Avg_Reward_Final_Episodes,Avg_Steps_Final_Episodes,Learned_Path_Length,Optimal_Path_Length,Path_Length_Ratio,LMS_LR,NLMS_LR,SignError_LR,RLS_Lambda,RLS_P_Init,Gamma,Random_Seed
-LMS,one_hot_state_action,16x16,5000,750,2037840,89.78,-537.59,407.57,-63.00,200.46,1500,38,39.47,0.001,0.05,0.0005,0.99,100.0,0.99,42
-LMS,one_hot_state_action,8x8,2000,750,248232,8.98,-634.00,124.12,104.76,64.82,1500,14,107.14,0.001,0.05,0.0005,0.99,100.0,0.99,42
-NLMS,one_hot_state_action,16x16,5000,750,261111,13.35,-34.04,52.22,157.51,38.43,38,38,1.00,0.001,0.05,0.0005,0.99,100.0,0.99,42
-NLMS,one_hot_state_action,8x8,2000,750,66218,2.50,-477.94,33.11,91.20,16.85,14,14,1.00,0.001,0.05,0.0005,0.99,100.0,0.99,42
-RLS_LSTD,one_hot_state_action,8x8,2000,750,65120,84.15,-488.30,32.56,76.56,17.30,14,14,1.00,0.001,0.05,0.0005,0.99,100.0,0.99,42
-SIGN_ERROR_LMS,one_hot_state_action,16x16,5000,750,3706680,180.28,-20249.27,741.34,-19827.90,739.09,1500,38,39.47,0.001,0.05,0.0005,0.99,100.0,0.99,42
-SIGN_ERROR_LMS,one_hot_state_action,8x8,2000,750,1106819,46.02,-20933.82,553.41,-21004.14,555.33,1500,14,107.14,0.001,0.05,0.0005,0.99,100.0,0.99,42
